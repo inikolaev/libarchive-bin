@@ -52,7 +52,8 @@ def main():
     else:
         dep = ''
         target = '"CLibArchive"'
-        extra = f'.binaryTarget(name: "CLibArchive", path: "{framework}"),'
+        shutil.copytree(framework, package/'CLibArchive.xcframework')
+        extra = '.binaryTarget(name: "CLibArchive", path: "CLibArchive.xcframework"),'
     (package/'Package.swift').write_text(f'''// swift-tools-version: 6.0
 import PackageDescription
 let package = Package(name: "Smoke", platforms: [.macOS(.v13)], dependencies: [{dep}], targets: [
