@@ -1,0 +1,102 @@
+name: Build and release
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the version in sources.lock.json after all tests pass
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: libarchive-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned build tooling
+        run: |
+          python3 -m venv .tooling
+          .tooling/bin/pip install cmake==3.31.6
+          echo "$PWD/.tooling/bin" >> "$GITHUB_PATH"
+      - name: Build universal static XCFramework
+        run: python3 scripts/build.py
+      - name: Test binary and SwiftPM import
+        run: python3 scripts/test.py
+      - name: Verify clean rebuild produces identical archive
+        run: |
+          cp dist/SHA256SUMS build/first-SHA256SUMS
+          python3 scripts/build.py
+          cmp build/first-SHA256SUMS dist/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: universal-library
+          path: dist/
+          if-no-files-found: error
+  test:
+    needs: build
+    strategy:
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: universal-library
+          path: dist/
+      - name: Verify asset and run on native architecture
+        run: |
+          (cd dist && shasum -a 256 -c SHA256SUMS)
+          python3 scripts/test.py
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: [build, test]
+    runs-on: macos-15
+    permissions:
+      contents: write
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: universal-library
+          path: dist/
+      - name: Prepare immutable release commit and tag
+        id: release
+        run: |
+          version=$(python3 scripts/prepare-release.py)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse "refs/tags/$version" >/dev/null 2>&1; then
+            echo "Version already exists; increment the packaging revision." >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Package.swift
+          git commit -m "Release CLibArchive $version"
+          git tag "$version"
+          # Non-forced atomic push fails if main changed during this build.
+          git push --atomic origin HEAD:main "refs/tags/$version"
+          gh release create "$version" --verify-tag --draft --title "CLibArchive $version" \
+            --notes-file RELEASE_NOTES.md dist/CLibArchive.xcframework.zip dist/SHA256SUMS dist/build-info.json
+          gh release edit "$version" --draft=false --prerelease
+      - name: Verify public download and SwiftPM resolution
+        run: python3 scripts/test.py --remote
+      - name: Promote verified release
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: gh release edit "$VERSION" --prerelease=false --latest
