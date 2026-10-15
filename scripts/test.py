@@ -73,8 +73,15 @@ precondition(archive_read_support_format_all(reader) == ARCHIVE_OK)
 precondition(archive_read_free(reader) == ARCHIVE_OK)
 print(String(cString: archive_version_details()))
 ''')
-    run('swift', 'run', '-c', 'release', '--package-path', package, 'Smoke')
+    run('swift', 'build', '-c', 'release', '--package-path', package, '--product', 'Smoke')
     binary = Path(output('swift', 'build', '-c', 'release', '--package-path', package, '--show-bin-path'))/'Smoke'
+    run('codesign', '--verify', '--verbose=4', binary)
+    run('xattr', '-l', binary)
+    try:
+        run(binary)
+    except subprocess.CalledProcessError:
+        subprocess.run(['log', 'show', '--last', '2m', '--style', 'compact', '--predicate', 'eventMessage CONTAINS[c] "Smoke"'])
+        raise
     deps = output('otool', '-L', binary)
     assert not re.search(r'lib(archive|z|bz2|lzma|zstd)[.\d]', deps), deps
     assert '/opt/homebrew' not in deps and '/usr/local' not in deps, deps
