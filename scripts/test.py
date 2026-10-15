@@ -75,7 +75,10 @@ print(String(cString: archive_version_details()))
 ''')
     run('swift', 'build', '-c', 'release', '--package-path', package, '--product', 'Smoke')
     binary = Path(output('swift', 'build', '-c', 'release', '--package-path', package, '--show-bin-path'))/'Smoke'
-    run('codesign', '--verify', '--verbose=4', binary)
+    # Apple Silicon executables require a linker signature; Intel CLI binaries
+    # may legitimately be unsigned. Execute both without altering their signatures.
+    if platform.machine() == 'arm64':
+        run('codesign', '--verify', '--verbose=4', binary)
     run('xattr', '-l', binary)
     try:
         run(binary)
