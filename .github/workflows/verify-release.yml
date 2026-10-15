@@ -1,0 +1,48 @@
+name: Verify published release
+on:
+  workflow_dispatch:
+    inputs:
+      promote:
+        description: Promote the current pinned release after both public-consumer tests pass
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      promote:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Download the existing immutable release
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("sources.lock.json"))["packageVersion"])')
+          gh release download "$version" --dir dist
+          (cd dist && shasum -a 256 -c SHA256SUMS)
+          ditto -x -k dist/CLibArchive.xcframework.zip dist
+      - name: Verify public SwiftPM consumer on native CPU
+        run: python3 scripts/test.py --remote
+  promote:
+    if: inputs.promote && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Promote the unchanged tested release
+        run: |
+          version=$(python3 -c 'import json; print(json.load(open("sources.lock.json"))["packageVersion"])')
+          gh release edit "$version" --prerelease=false --latest

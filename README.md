@@ -84,7 +84,7 @@ CI executes the same artifact on native Apple Silicon and Intel runners. macOS
 4. The workflow rebuilds twice, verifies checksums and passes both native test
    jobs before generating the URL/checksum manifest and pushing its commit/tag.
 5. It uploads the exact tested ZIP, `SHA256SUMS` and `build-info.json`, publishes
-   a prerelease, then resolves and runs a fresh SwiftPM consumer from the public
+   a prerelease, then resolves and runs fresh SwiftPM consumers on both CPUs from the public
    URL. Only success promotes the release to latest/stable.
 
 The initial development manifest references a local build. Published manifests
@@ -92,9 +92,12 @@ always contain an immutable release URL and the real SwiftPM SHA-256 checksum.
 After the first release, main points at that release until the next one is made;
 local binary tests explicitly use the newly built XCFramework.
 
-A failure after tag publication leaves that version reserved. Investigate the
-failed run, retain the failed prerelease for diagnosis, and publish a new
-packaging revision; do not overwrite an asset or move a tag. Branch protection
+A failure after tag publication leaves that version reserved. If the binary or
+manifest needs correction, retain the prerelease and publish a new packaging
+revision; never overwrite an asset or move a tag. For a transient runner failure,
+run **Verify published release** on main with **promote** enabled: it downloads
+the existing asset and independently runs public SwiftPM consumers on both CPUs,
+then promotes only after both pass. It never rebuilds or changes release bytes. Branch protection
 that forbids workflow commits will stop publication before a tag or release is
 created. Build/test jobs have read-only permissions; only the manual release job
 gets repository write access. Actions are pinned by commit SHA.

@@ -94,9 +94,11 @@ jobs:
           gh release create "$version" --verify-tag --draft --title "CLibArchive $version" \
             --notes-file RELEASE_NOTES.md dist/CLibArchive.xcframework.zip dist/SHA256SUMS dist/build-info.json
           gh release edit "$version" --draft=false --prerelease
-      - name: Verify public download and SwiftPM resolution
-        run: python3 scripts/test.py --remote
-      - name: Promote verified release
-        env:
-          VERSION: ${{ steps.release.outputs.version }}
-        run: gh release edit "$VERSION" --prerelease=false --latest
+  verify-published:
+    needs: release
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/verify-release.yml
+    with:
+      promote: true
