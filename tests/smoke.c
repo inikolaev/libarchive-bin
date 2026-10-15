@@ -35,14 +35,21 @@ static void roundtrip(int format, int filter) {
     CHECK(archive_read_support_format_all(r) == ARCHIVE_OK);
     CHECK(archive_read_open_memory(r, buffer, used) == ARCHIVE_OK);
     CHECK(archive_filter_code(r, 0) == filter);
-    CHECK(archive_read_next_header(r, &e) == ARCHIVE_OK);
-    CHECK(strcmp(archive_entry_pathname(e), "folder/") == 0);
-    CHECK(archive_entry_filetype(e) == AE_IFDIR);
-    CHECK(archive_read_next_header(r, &e) == ARCHIVE_OK);
-    CHECK(strcmp(archive_entry_pathname(e), "folder/hello.txt") == 0);
-    CHECK(archive_entry_size(e) == sizeof(payload)-1);
-    CHECK(archive_read_data(r, readback, sizeof(readback)) == sizeof(payload)-1);
-    CHECK(memcmp(payload, readback, sizeof(payload)-1) == 0);
+    int files = 0, directories = 0;
+    for (int i = 0; i < 2; ++i) {
+        CHECK(archive_read_next_header(r, &e) == ARCHIVE_OK);
+        if (archive_entry_filetype(e) == AE_IFDIR) {
+            CHECK(strcmp(archive_entry_pathname(e), "folder/") == 0);
+            directories++;
+        } else {
+            CHECK(strcmp(archive_entry_pathname(e), "folder/hello.txt") == 0);
+            CHECK(archive_entry_size(e) == sizeof(payload)-1);
+            CHECK(archive_read_data(r, readback, sizeof(readback)) == sizeof(payload)-1);
+            CHECK(memcmp(payload, readback, sizeof(payload)-1) == 0);
+            files++;
+        }
+    }
+    CHECK(files == 1 && directories == 1);
     CHECK(archive_read_next_header(r, &e) == ARCHIVE_EOF);
     CHECK(archive_read_free(r) == ARCHIVE_OK);
 }
@@ -55,7 +62,7 @@ int main(void) {
     printf("%s\n", archive_version_details());
     int filters[] = {ARCHIVE_FILTER_NONE, ARCHIVE_FILTER_GZIP, ARCHIVE_FILTER_BZIP2, ARCHIVE_FILTER_XZ, ARCHIVE_FILTER_ZSTD};
     for (size_t i = 0; i < sizeof(filters)/sizeof(filters[0]); ++i)
-        roundtrip(ARCHIVE_FORMAT_PAX_RESTRICTED, filters[i]);
+        roundtrip(ARCHIVE_FORMAT_TAR_PAX_RESTRICTED, filters[i]);
     roundtrip(ARCHIVE_FORMAT_ZIP, ARCHIVE_FILTER_NONE);
     roundtrip(ARCHIVE_FORMAT_7ZIP, ARCHIVE_FILTER_NONE);
     struct archive *r = archive_read_new();
